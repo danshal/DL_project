@@ -14,7 +14,7 @@ from torchaudio.datasets.utils import (
     walk_files,
 )
 
-URL = "train-clean-100"
+#URL = "train-clean-100"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR = "latent_small"
 FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO = "SV_Librispeech_Dataset"
 FOLDER_IN_ARCHIVE_ORIGINAL_LIBRI = "LibriSpeech"
@@ -62,7 +62,7 @@ class SV_LIBRISPEECH(Dataset):
     _ext_repr = ".pt"
 
     def __init__(self, root: str, url: str = "train-clean-360",
-                 folder_in_archive: str = "latent_small",
+                 folder_in_archive: str = "cut_train_data_360_repr",
                  download: bool = False, is_SV: bool = True, wav2vec_fine_tuning: bool = False , file_ext='.pt') -> None:
 
         if url in [

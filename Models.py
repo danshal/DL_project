@@ -58,3 +58,59 @@ class SIAMESE_SV(nn.Module):
             output2 = self.forward_once(input2)
             # returning the feature vectors of two inputs
             return output1, output2
+class RNN_model(nn.Module):
+  def __init__(self, num_classes, winit, p_drop ,seq_length,hidden_units,layers_num, batch_size):
+    super().__init__()
+    self._num_classes = num_classes
+    self._layers_num = layers_num
+    self._hidden_units = hidden_units
+    self.dropout = nn.Dropout(p=p_drop)
+    self.winit = winit
+    self._batch_size = batch_size
+    self._rnn = nn.GRU(self._hidden_units, self._hidden_units, self._layers_num,
+                        batch_first=True, dropout=p_drop)
+    self.decoder = nn.Linear(self._hidden_units*seq_length, self._num_classes)
+    self.reset_parameters()
+    
+
+  def reset_parameters(self):
+    '''This function will set the weights to a uniform
+       distribution in [-winit, winit] range'''
+    for param in self.parameters():
+      nn.init.uniform_(param, -self.winit, self.winit)
+
+  def init_hidden(self):
+    weight = next(self.parameters()).data
+    return weight.new_zeros(self._layers_num,  self._batch_size, self._hidden_units)
+
+
+  def forward(self, x, states):
+    x = self.dropout(x)
+    x, states = self._rnn(x, states)
+    x = self.dropout(x)
+    #x = x.contiguous().view(-1, hidden_units) #flatten before fully connected layer
+    x = x.contiguous().view(self._batch_size, -1)
+    scores = self.decoder(x)
+    return scores, states
+
+def getPerplexity(netToEval, batchGenerator):
+  device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+  netToEval.to(device)
+  with torch.no_grad():
+    netToEval.eval()
+    criterionEval = nn.CrossEntropyLoss()
+    hidden = netToEval.init_hidden()
+    if type(hidden) == tuple:
+      hidden = [state.detach().to(device) for state in hidden] 
+    else:
+      hidden = hidden.detach().to(device)
+    
+    meanPerplexity = 0
+    for i, (features, targets) in enumerate(batchGenerator, start=0):     
+      inputs = features.to(device)
+      output, hidden = netToEval(inputs, hidden)
+      targets = targets.reshape(-1).to(device)
+      loss = criterionEval(output, targets.long())
+      meanPerplexity = (meanPerplexity*i + loss.item())/(i+1)
+    netToEval.train() # reset to train mode after iterating through data
+  return np.exp(meanPerplexity)

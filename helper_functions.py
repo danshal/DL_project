@@ -39,6 +39,7 @@ class sv_helper(object):
         with torch.no_grad():
             z = self._model.feature_extractor(input_tensor)
             c = self._model.feature_aggregator(z)
+            c = c.to('cpu')
             return c
 
 

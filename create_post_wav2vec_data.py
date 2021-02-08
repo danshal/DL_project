@@ -1,4 +1,4 @@
-''' This scrupt will go throw cut audio files, get their representations using wav2vec,
+''' This script will go throw cut audio files, get their representations using wav2vec,
    and afterwards will avgpool them to get [512, 1] representation that will be saved to filesystem '''
 import os
 import fairseq
@@ -13,17 +13,17 @@ from torch import nn
 from helper_functions import sv_helper
 import argparse
 
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #create parser
 my_parser = argparse.ArgumentParser(description='Get audio representations of data_path audio files using wav2vec network. Pay Attention: Your data and dst paths have to be under /home/Daniel/DeepProject/dataset/')
 #add arguments
 my_parser.add_argument('data_path', metavar='data_path', type=str, help='path to audio files to be represented')
 my_parser.add_argument('dst_path', metavar='dst_path', type=str, help='path to save audio representations')
-my_parser.add_argument('is_avgpool', metavar='is_avgpool', type=bool, help='boolean flag. When true -> save avg on all time axis to get representations shape of [512,1]')
+my_parser.add_argument('--avg', default=False, action='store_true', help='boolean flag. When true -> save avg on all time axis to get representations shape of [512,1]')
 
 args = my_parser.parse_args()
 args = vars(args)
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 cp_path = '/home/Daniel/DeepProject/wav2vec/wav2vec_large.pt'
 model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
@@ -32,11 +32,18 @@ model.eval()
 
 helper = sv_helper(model)
 
-#data_path = '/home/Daniel/DeepProject/dataset/cut_train_data_360/'
-#dst_data_path = '/home/Daniel/DeepProject/dataset/cut_train_data_360_full_repr'
+# data_path = '/home/Daniel/DeepProject/dataset/cut_train_data_360/'
+# dst_data_path = '/home/Daniel/DeepProject/dataset/cut_train_data_360_full_repr'
 data_path = args['data_path']
 dst_data_path = args['dst_path']
-is_avgpool = args['is_avgpool']
+is_avgpool = args['avg']
+# is_avgpool = 0
+# if is_avgpool == 0:
+#   is_avgpool = False
+# else:
+#   is_avgpool = True
+#is_avgpool = args.avg
+print(is_avgpool)
 rootDir = '/home/Daniel/DeepProject/dataset/'
 file_ext = '.flac'
 walker = walk_files(data_path, suffix=file_ext, prefix=False, remove_suffix=True)
@@ -47,6 +54,7 @@ speaker_counter = 0
 
 try:
   if not os.path.exists(f'{dst_data_path}/{speaker_counter}'):
+    print('making directory!')
     os.mkdir(f'{dst_data_path}/{speaker_counter}')
     #print('asdasdf')
     #os.makedirs(f'{dst_data_path}/{speaker_counter}', 0o700)
@@ -54,6 +62,7 @@ except OSError:
   print('ERROR delete current dataset folder')
   pass
 
+print_flag = True
 
 for i in walker:
     speaker_id, utterance_id = i.split("-")
@@ -70,10 +79,18 @@ for i in walker:
     waveform = waveform.to(device)
     audio_repr = helper.get_tensor_repr(waveform)
     if is_avgpool == True:
+      if print_flag == True:
+        print(audio_repr.shape[2])
       avg_pool = nn.AvgPool1d(audio_repr.shape[2])
       avg_repr = avg_pool(audio_repr)
       avg_repr = torch.squeeze(avg_repr)
+      if print_flag == True:
+        print(avg_repr.shape)
+        print_flag = False
     else:
       avg_repr = torch.squeeze(audio_repr)
+      if print_flag == True:
+        print(avg_repr.shape)
+        print_flag = False
     torch.save(avg_repr, f'{dst_data_path}/{speaker_counter}/{speaker_counter}-{speaker_utterace_counter}.pt')
     speaker_utterace_counter+=1
