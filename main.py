@@ -46,6 +46,23 @@ import Models
 import time
 
 
+def evaluation(net, dataloader):
+  '''This function will calculate the accuracy in gpu'''
+  #keeping the network in evaluation mode 
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  net.eval()
+  total, correct = 0, 0
+  with torch.no_grad():
+    for data in dataloader:
+      inputs, labels = data
+      inputs, labels = inputs.to(device), labels.to(device)
+      outputs = net(inputs)
+      _, pred = torch.max(outputs.data, 1)
+      total += labels.size(0)
+      correct += (pred == labels).sum().item()
+  net.train()
+  return 100 * correct / total
+
 
 def main():
   #Declaring GPU device
@@ -63,8 +80,7 @@ def main():
   #Get fairseq wav2vec model
   cp_path = '/home/Daniel/DeepProject/wav2vec/wav2vec_large.pt'
   model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
-  model = model
-  model = model[0]
+  model = model[0].to(device)
   model.eval()
 
   wav_input_16khz = torch.randn(1,10000).to(device)
@@ -114,7 +130,7 @@ def main():
   print(f'Number of test examples(utterances): {len(my_test_data)}')
   my_test_loader = torch.utils.data.DataLoader(my_test_data, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
-  net = Models.NAIVE_SV(1, helper.get_speakers_num('/home/Daniel/DeepProject/dataset/latent_small_avg'))
+  net = Models.NAIVE_SV(1, helper.get_speakers_num('/home/Daniel/DeepProject/dataset/cut_train_data_360_repr'))
   criterion = nn.CrossEntropyLoss() #Combines nn.LogSoftmax() & nn.NLLLoss
   optimizer = optim.Adam(net.parameters(), lr=learning_rate)  #need to check what the wav2vec2 paper did with the learning rate (i think it was frozen for big amount of steps and afterwards updated each step)
   print(net)
@@ -130,7 +146,7 @@ def main():
     for i, data in enumerate(my_train_loader, 0):
       #get inputs and labels and move them to gpu
       time1 = time.time()
-      inputs, labels = data[0].to(device), data[1] .to(device)
+      inputs, labels = data[0].to(device), data[1].to(device)
       #clear the gradients
       optimizer.zero_grad()
       #make a forward pass
@@ -141,7 +157,10 @@ def main():
       loss.backward()
       #perform a single optimization step (parameter update)
       optimizer.step()
+      if i % 500 == 0:
+        print(i) 
     #Validation:
+    print('***************validation**************')
     for i, data in enumerate(my_train_loader, 0):
       with torch.no_grad():
         net.eval()
@@ -152,6 +171,8 @@ def main():
         #get number of matches with the real labels
         equals = top_class == labels.view(*top_class.shape)
         train_accuracy[epoch] += torch.sum(equals.type(torch.FloatTensor))
+        if i % 500 == 0:
+          print(i)
 
     test_acc = evaluation(net, my_test_loader)
 
