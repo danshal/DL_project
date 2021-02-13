@@ -14,10 +14,12 @@ from torchaudio.datasets.utils import (
     walk_files,
 )
 
-#URL = "train-clean-100"
-FOLDER_IN_ARCHIVE_THREE_SEC_REPR = "latent_small"
 FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO = "SV_Librispeech_Dataset"
 FOLDER_IN_ARCHIVE_ORIGINAL_LIBRI = "LibriSpeech"
+FOLDER_IN_ARCHIVE_THREE_SEC_REPR = "cut_train_data_360_full_repr"
+transform = transforms.Normalize((0.5), (0.5))
+
+
 def load_sv_librispeech_item(fileid: str, path: str, ext: str = '.pt') -> Tuple[Tensor, int]:
     '''This function return example as wav2vec representation or librispeech audio
        representation from a given path'''
@@ -28,6 +30,7 @@ def load_sv_librispeech_item(fileid: str, path: str, ext: str = '.pt') -> Tuple[
       input, _ = torchaudio.load(file_path) # Load audio - dont care about sample rate
     else:
       input = torch.load(file_path)
+    #transform_input = torch.squeeze(torch.transpose(transform(torch.unsqueeze(torch.unsqueeze(input,0),2)),0,1))
     return (input, int(speaker_id))
 
 

@@ -84,36 +84,63 @@ _CHECKSUMS = {
 def train(model, loss_func, mining_func, device, train_loader, optimizer, epoch):
   model.to(device)
   model.train()
+  start_time = time.time()
   for batch_idx, (data, labels) in enumerate(train_loader):
      data, labels = data.to(device), labels.to(device)
      optimizer.zero_grad()
      embeddings = model(data)
      indices_tuple = mining_func(embeddings, labels)
+     if indices_tuple[0].shape < indices_tuple[2].shape:
+       list_indices_tuple = list(indices_tuple)
+       pos_exmp_num = torch.tensor(list_indices_tuple[0].shape).item()
+       list_indices_tuple[2] = list_indices_tuple[2][:pos_exmp_num]
+       list_indices_tuple[3] = list_indices_tuple[3][:pos_exmp_num]
+       indices_tuple = tuple(list_indices_tuple)
      loss = loss_func(embeddings, labels, indices_tuple)
      loss.backward()
      optimizer.step()
-     if batch_idx % 20 == 0:
-       print("Epoch {} Iteration {}: Loss = {}, Number of mined triplets = {}".format(epoch, batch_idx, loss, mining_func.num_triplets))
+     if batch_idx % 50 == 0:
+       print(" average positive distance:{} average negative distance:{}".format(mining_func.pos_pair_dist,mining_func.neg_pair_dist))
+       print(" maximum positive distance:{} maximum negative distance:{}".format(mining_func.pos_pair_max_dist,mining_func.neg_pair_max_dist))
+
+       print("Epoch {} Iteration {}: Loss = {}, Number of mined pairs = {} , 50 batches training took:{}".format(epoch, batch_idx, loss, mining_func.num_pos_pairs,time.time()-start_time))
+       start_time = time.time()
 
 
-### convenient function from pytorch-metric-learning ###
-def get_all_embeddings(dataset, model):
-    tester = testers.BaseTester()
-    return tester.get_all_embeddings(dataset, model)
 
-
-### compute accuracy using AccuracyCalculator from pytorch-metric-learning ###
-def test(train_set, test_set, model, accuracy_calculator):
-    train_embeddings, train_labels = get_all_embeddings(train_set, model)
-    test_embeddings, test_labels = get_all_embeddings(test_set, model)
-    print("Computing accuracy")
-    accuracies = accuracy_calculator.get_accuracy(test_embeddings, 
-                                                train_embeddings,
-                                                np.squeeze(test_labels),
-                                                np.squeeze(train_labels),
-                                                False)
-    print("Test set accuracy (Precision@1) = {}".format(accuracies["precision_at_1"]))
-
+### compute accuracy ###
+def evaluation(data_loader, model, mining_func_err,mining_func_no_Constraint,device,epoch):
+  model.to(device)
+  model.eval()
+  batch_counter = 0
+  with torch.no_grad():
+    start_time = time.time()
+    sum_pos_err = 0
+    sum_neg_err = 0
+    for batch_idx, (data, labels) in enumerate(data_loader):
+        batch_counter+=1
+        data, labels = data.to(device), labels.to(device)
+        embeddings = model(data)
+        _ = mining_func_err(embeddings, labels)
+        _ = mining_func_no_Constraint(embeddings, labels)
+       
+        pos_err = mining_func_err.num_pos_pairs/mining_func_no_Constraint.num_pos_pairs
+        neg_err = mining_func_err.num_neg_pairs/mining_func_no_Constraint.num_neg_pairs
+        sum_pos_err+= pos_err
+        sum_neg_err+=neg_err
+        # loss = loss_func(embeddings, labels, indices_tuple)
+        # pos_err = torch.tensor( loss['pos_loss']['losses'][loss['pos_loss']['losses']>0.5].shape).item()/torch.tensor(loss['pos_loss']['losses'].shape).item()
+        # neg_err = torch.tensor( loss['neg_loss']['losses'][loss['neg_loss']['losses']>0.5].shape).item()/torch.tensor(loss['neg_loss']['losses'].shape).item()
+        if batch_idx % 200 == 0:
+            print("done {} batches".format(batch_idx))
+    dist_pos = mining_func_no_Constraint.pos_pair_dist
+    dist_neg = mining_func_no_Constraint.neg_pair_dist
+    print("negative average distance:{}".format(dist_neg))
+    print("positive average distance:{}".format(dist_pos))
+    print("proccessing took: {} seconds".format(time.time()-start_time))
+    print("EVAL : Epoch {} Iteration {}: positives_acc = {}, Number of mined positives = {}".format(epoch, batch_idx, 1-sum_pos_err/(batch_counter), mining_func_err.num_pos_pairs))
+    print("EVAL : Epoch {} Iteration {}: negative_acc = {}, Number of mined negatives = {}".format(epoch, batch_idx, 1-sum_neg_err/(batch_counter), mining_func_err.num_neg_pairs))
+    return 1-sum_pos_err/batch_counter , 1-sum_neg_err/batch_counter
 
 def main():
   #Declaring GPU device
@@ -121,12 +148,13 @@ def main():
   print(f'You are using {device} device')
 
   #Hyperparametes
-  batch_size = 256
+  batch_size = 2048
   epochs = 20
   learning_rate = 0.003
   optimizer_type = "Adam"
   waveform_length_in_seconds = 3
   sample_rate = 16000
+  threshold = 0.065
 
   #Get fairseq wav2vec model
   cp_path = '/home/Daniel/DeepProject/wav2vec/wav2vec_large.pt'
@@ -135,19 +163,12 @@ def main():
   model.eval()
 
   helper = sv_helper(model)
-
-  # wav_input_16khz = torch.randn(1,10000).to(device)
-  # z = model.feature_extractor(wav_input_16khz)
-  # c = model.feature_aggregator(z)
-  # print(f'input shape = {wav_input_16khz.shape} ; z shape = {z.shape} ; z shape = {c.shape}')
-
-
   #Get train & test datasets and DataLoaders
   train_data = SV_LIBRISPEECH('/home/Daniel/DeepProject/',
                                  folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG, download=False)
   print(f'Number of training examples(utterances): {len(train_data)}')
   #my_train_loader = torch.utils.data.DataLoader(my_train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
-  train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+  train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
   test_data = SV_LIBRISPEECH('/home/Daniel/DeepProject/',
                                 url = "test-clean",
@@ -156,26 +177,30 @@ def main():
   print(f'Number of test examples(utterances): {len(test_data)}')
   test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
-  net = Models.NAIVE_SV(1, helper.get_speakers_num('/home/Daniel/DeepProject/dataset/cut_train_data_360_repr'))
+  net = Models.FC_SV()
   optimizer = optim.Adam(net.parameters(), lr=learning_rate)  #need to check what the wav2vec2 paper did with the learning rate (i think it was frozen for big amount of steps and afterwards updated each step)
   print(net)
   ### pytorch-metric-learning stuff ###
-  distance = distances.CosineSimilarity()
+  distance = distances.LpDistance(normalize_embeddings=True)
   reducer = reducers.ThresholdReducer(low = 0)
   #loss_func = losses.ContrastiveLoss(pos_margin=0, neg_margin=0.5)
   #loss_func = losses.TripletMarginLoss(margin = 0.2, distance = distance, reducer = reducer)
   #mining_func = miners.TripletMarginMiner(margin = 0.2, distance = distance, type_of_triplets = "semihard")
   #mining_func = miners.PairMarginMiner(pos_margin=0.2, neg_margin=0.8)
-  loss_func = losses.TripletMarginLoss(margin = 0.2, distance = distance, reducer = reducer)
-  mining_func = miners.TripletMarginMiner(margin = 0.2, distance = distance, type_of_triplets = "semihard")
-  accuracy_calculator = AccuracyCalculator(include = ("precision_at_1",), avg_of_avgs = True, k = None)
+  #loss_func =  losses.ContrastiveLoss(pos_margin=0.2, neg_margin=0.8, distance = distance, reducer = reducer)
+  ### train proccess
+  loss_func = losses.ContrastiveLoss(pos_margin=0.01, neg_margin=0.1,reducer = reducer)
+  train_mining_func = miners.PairMarginMiner(pos_margin=0.01, neg_margin=0.1)
+  ### test proccess
+  test_err_mining_func = miners.PairMarginMiner(pos_margin=threshold, neg_margin=threshold)
+  test_no_constraint_mining_func = miners.PairMarginMiner(collect_stats=True,pos_margin=0., neg_margin=100.)
   ### pytorch-metric-learning stuff ###
-
   for epoch in range(epochs):
     start_train_time = time.time()
-    train(net, loss_func, mining_func, device, train_loader, optimizer, epoch)
+    train(net, loss_func, train_mining_func, device, train_loader, optimizer, epoch)
     print(f'Finished train epoch in {(time.time() - start_train_time):.2f}')
-    test(train_data, test_data, net, accuracy_calculator)
+    pos_acc , neg_acc = evaluation(test_loader, net, test_err_mining_func,test_no_constraint_mining_func,device,epoch)
+    print("test accuracy={}".format(0.5*(pos_acc+neg_acc)))
 
 
 if __name__ == '__main__':

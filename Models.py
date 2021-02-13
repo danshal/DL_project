@@ -30,6 +30,36 @@ class NAIVE_SV(nn.Module):
         x = self.fc(x)
         return x
 
+class FC_SV(nn.Module):
+    '''This class represents a model that can take as input a [512,width]
+      (width -> ?[sec] uuterance) and outputs a softmax for speaker verification
+       task.
+       Model Architecture:
+       1. Avg pool on whole time axis (298 samples)
+       2. Linear transformation that will output as number of speakers'''
+
+    def __init__(self):
+        super(FC_SV, self).__init__()
+        self._height = 512  # according wav2vec last conv layer kernels amount
+        self.output_dim = 128
+        #self.avg_pool = nn.AvgPool1d(kernel_size=self._width)
+        self.fc = nn.Sequential(
+
+            nn.Linear(self._height, self.output_dim),
+            nn.ReLU(),
+            nn.BatchNorm1d(self.output_dim),
+            nn.Linear(self.output_dim,self.output_dim)
+        )
+        # Dont think we need any regularization for this thin network but just in case:
+        # self.batch_norm = nn.BatchNorm1d(self.speakers_num)
+        # self.drop = nn.Dropout(0.5)  #Hard coded probability for now...
+
+    def forward(self, x):
+        # Forward pass
+        #x = self.avg_pool(x)
+        #x = x.view(-1, self._height)
+        x = self.fc(x)
+        return x
 
 # maybe for future use:
 class SIAMESE_SV(nn.Module):
@@ -114,3 +144,24 @@ def getPerplexity(netToEval, batchGenerator):
       meanPerplexity = (meanPerplexity*i + loss.item())/(i+1)
     netToEval.train() # reset to train mode after iterating through data
   return np.exp(meanPerplexity)
+
+
+  ### MNIST code
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, 3, 1)
+        self.conv2 = nn.Conv2d(32, 64, 3, 1)
+        self.dropout1 = nn.Dropout2d(0.25)
+        self.dropout2 = nn.Dropout2d(0.5)
+        self.fc1 = nn.Linear(9216, 128)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
+        x = self.dropout1(x)
+        x = torch.flatten(x, 1)
+        x = self.fc1(x)
