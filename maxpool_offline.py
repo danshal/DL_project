@@ -8,8 +8,8 @@ from torchaudio.datasets.utils import (
 from torch import nn
 import numpy as np
 model = 'FC'# GRU or FC
-data_path = '/home/Daniel/DeepProject/dataset/cut_train_data_360_full_repr/'
-avg_data_path = f'/home/Daniel/DeepProject/dataset/cut_train_data_360_max_pool_repr/'
+data_path = '/home/Daniel/DeepProject/dataset/cut_test_full_repr/'
+avg_data_path = f'/home/Daniel/DeepProject/dataset/cut_test_max_pool_repr/'
 rootDir = '/home/Daniel/DeepProject/dataset/'
 try:  
   os.mkdir(avg_data_path)
@@ -23,7 +23,7 @@ walker = list(walker)
 current_speaker_id, _ = walker[0].split("-")
 speaker_utterace_counter = 0
 speaker_counter = 0
-file_path = f'{rootDir}cut_train_data_360_max_pool_repr'
+file_path = f'{rootDir}cut_test_max_pool_repr'
 print(f'saving data to {file_path}')
 try:  
   os.mkdir(f'{file_path}/{speaker_counter}')

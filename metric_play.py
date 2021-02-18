@@ -1,3 +1,4 @@
+#region imports
 #General imports
 import argparse
 import glob
@@ -44,16 +45,39 @@ import time
 from pytorch_metric_learning import losses, miners, distances, reducers, testers, samplers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 import faiss
+import torchvision.models as models
+from torch.utils.tensorboard import SummaryWriter
+#endregion
 
 
-#Dataset Constants:
+#region compute EER
+def compute_eer(labels, scores):
+    """Compute the Equal Error Rate (EER) from the predictions and scores.
+    Args:
+        labels (list[int]): values indicating whether the ground truth
+            value is positive (1) or negative (0).
+        scores (list[float]): the confidence of the prediction that the
+            given sample is a positive.
+    Return:
+        (float, thresh): the Equal Error Rate and the corresponding threshold
+    NOTES:
+       The EER corresponds to the point on the ROC curve that intersects
+       the line given by the equation 1 = FPR + TPR.
+       The implementation of the function was taken from here:
+       https://yangcha.github.io/EER-ROC/
+    """
+    fpr, tpr, thresholds = roc_curve(labels, scores, pos_label=1)
+    eer = brentq(lambda x : 1. - x - interp1d(fpr, tpr)(x), 0., 1.)
+    thresh = interp1d(fpr, thresholds)(eer)
+    return eer, thresh
+#endregion
+
+
+#region Dataset Constants
 rootDir = '/home/Daniel/DeepProject/dataset'
 URL = "train-clean-100"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR = "cut_train_data_360_full_repr"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG = "cut_train_data_360_repr"
-FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG_SMALL = "cut_train_data_360_small_repr"
-FOLDER_IN_ARCHIVE_THREE_SEC_REPR_MAX = "cut_train_data_360_max_pool_repr"
-FOLDER_IN_ARCHIVE_THREE_SEC_REPR_MAX_TEST = "cut_test_max_pool_repr"
 FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO = "cut_train_data_360"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR_TEST = "cut_test_full_repr"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG_TEST = "cut_test_repr"
@@ -75,13 +99,17 @@ _CHECKSUMS = {
     "http://www.openslr.org/resources/12/train-other-500.tar.gz":
     "ddb22f27f96ec163645d53215559df6aa36515f26e01dd70798188350adcb6d2"
 }
+#endregion
 
-# Create the tester
-# tester = testers.GlobalEmbeddingSpaceTester(end_of_testing_hook = hooks.end_of_testing_hook, 
-#                                             visualizer = umap.UMAP(), 
-#                                             visualizer_hook = visualizer_hook,
-#                                             dataloader_num_workers = 4)
-### pytorch-metric-learning stuff ###
+writer = SummaryWriter('/home/Daniel/DeepProject/summary_results')
+
+
+def balance_pairs_amount(indices_tuple):
+    list_indices_tuple = list(indices_tuple)
+    pos_exmp_num = torch.tensor(list_indices_tuple[0].shape).item()
+    list_indices_tuple[2] = list_indices_tuple[2][:pos_exmp_num]
+    list_indices_tuple[3] = list_indices_tuple[3][:pos_exmp_num]
+    return tuple(list_indices_tuple)
 
 
 def train(model, loss_func, mining_func, device, train_loader, optimizer, epoch):
@@ -91,28 +119,32 @@ def train(model, loss_func, mining_func, device, train_loader, optimizer, epoch)
   for batch_idx, (data, labels) in enumerate(train_loader):
      data, labels = data.to(device), labels.to(device)
      optimizer.zero_grad()
+     #print('START RESNET TIME')
+     #resnet_time = time.time()
      embeddings = model(data)
+     #print(f'*********************{(time.time() - resnet_time):.2f}*********************')
      indices_tuple = mining_func(embeddings, labels)
      if indices_tuple[0].shape < indices_tuple[2].shape:
-       list_indices_tuple = list(indices_tuple)
-       pos_exmp_num = torch.tensor(list_indices_tuple[0].shape).item()
-       list_indices_tuple[2] = list_indices_tuple[2][:pos_exmp_num]
-       list_indices_tuple[3] = list_indices_tuple[3][:pos_exmp_num]
-       indices_tuple = tuple(list_indices_tuple)
+       balance_pairs_amount(indices_tuple)  #force positive and negative pairs to be with equal amount 
      loss = loss_func(embeddings, labels, indices_tuple)
+     writer.add_scalar(f'Loss_{epoch}/train', loss, batch_idx)
+     writer.add_scalars(f'Pos_Distance_{epoch}/train', {'mean_pos_pair_dist': mining_func.pos_pair_dist, 'mean_neg_pair_dist': mining_func.neg_pair_dist,
+                                                'pos_pair_dist_std': mining_func.pos_pair_dist_std, 'neg_pair_dist_std': mining_func.neg_pair_dist_std,
+                                                'pos_pair_min_dist': mining_func.pos_pair_min_dist, 'neg_pair_max_dist': mining_func.neg_pair_max_dist}, batch_idx)
+    writer.add_scalar(f'Pos_Distance_{epoch}/train', {'mean_neg_pair_dist': mining_func.neg_pair_dist, 'neg_pair_dist_std': mining_func.neg_pair_dist_std, 
+                                                      'neg_pair_max_dist': mining_func.neg_pair_max_dist}, batch_idx)
      loss.backward()
      optimizer.step()
-     if batch_idx % 50 == 0:
-       print(" average positive distance:{} +- {} average negative distance:{} +- {}".format(mining_func.pos_pair_dist,mining_func.pos_pair_dist_std,mining_func.neg_pair_dist,mining_func.neg_pair_dist_std))
-       print(" minimum positive distance:{} maximum negative distance:{}".format(mining_func.pos_pair_min_dist,mining_func.neg_pair_max_dist))
-
-       print("Epoch {} Iteration {}: Loss = {}, Number of mined pairs = {} , 50 batches training took:{}".format(epoch, batch_idx, loss, mining_func.num_pos_pairs,time.time()-start_time))
-       start_time = time.time()
+     if batch_idx % 50 == 0:         
+         print("Average positive distance:{} +- {} average negative distance:{} +- {}".format(mining_func.pos_pair_dist,mining_func.pos_pair_dist_std,mining_func.neg_pair_dist,mining_func.neg_pair_dist_std))
+         print("Minimum positive distance:{} maximum negative distance:{}".format(mining_func.pos_pair_min_dist, mining_func.neg_pair_max_dist))
+         print(f"Epoch {epoch} Iteration {batch_idx}: Loss = {loss}, Number of mined pairs = {mining_func.num_pos_pairs} , 50 batches training took:{(time.time()-start_time):.2f}")
+         start_time = time.time()
 
 
 
 ### compute accuracy ###
-def evaluation(data_loader, model, mining_func_err,mining_func_no_Constraint,device,epoch):
+def evaluation(data_loader, model, mining_func_err, mining_func_no_Constraint, device,epoch):
   model.to(device)
   model.eval()
   batch_counter = 0
@@ -121,40 +153,40 @@ def evaluation(data_loader, model, mining_func_err,mining_func_no_Constraint,dev
     sum_pos_err = 0
     sum_neg_err = 0
     for batch_idx, (data, labels) in enumerate(data_loader):
-        batch_counter+=1
+        batch_counter += 1
         data, labels = data.to(device), labels.to(device)
         embeddings = model(data)
         _ = mining_func_err(embeddings, labels)
         _ = mining_func_no_Constraint(embeddings, labels)
        
-        pos_err = mining_func_err.num_pos_pairs/mining_func_no_Constraint.num_pos_pairs
-        neg_err = mining_func_err.num_neg_pairs/mining_func_no_Constraint.num_neg_pairs
-        sum_pos_err+= pos_err
-        sum_neg_err+=neg_err
-        # loss = loss_func(embeddings, labels, indices_tuple)
-        # pos_err = torch.tensor( loss['pos_loss']['losses'][loss['pos_loss']['losses']>0.5].shape).item()/torch.tensor(loss['pos_loss']['losses'].shape).item()
-        # neg_err = torch.tensor( loss['neg_loss']['losses'][loss['neg_loss']['losses']>0.5].shape).item()/torch.tensor(loss['neg_loss']['losses'].shape).item()
+        pos_err = mining_func_err.num_pos_pairs / mining_func_no_Constraint.num_pos_pairs
+        neg_err = mining_func_err.num_neg_pairs / mining_func_no_Constraint.num_neg_pairs
+        writer.add_scalars(f'Error_{epoch}/test', {'pos_err': pos_err, 'neg_err': neg_err}, batch_idx)
+        writer.add_scalars(f'Examples_number_{epoch}/test', {'num_pos_pairs': mining_func_err.num_pos_pairs, 'num_neg_pairs': mining_func_err.num_pos_pairs}, batch_idx)
+        sum_pos_err += pos_err
+        sum_neg_err += neg_err
         if batch_idx % 200 == 0:
-            print("done {} batches".format(batch_idx))
+            print("Finished evaluate {} batches".format(batch_idx))
     dist_pos = mining_func_no_Constraint.pos_pair_dist
     dist_neg = mining_func_no_Constraint.neg_pair_dist
-    print("negative average distance:{} +- {}".format(dist_neg,mining_func_no_Constraint.neg_pair_dist_std))
-    print("positive average distance:{} +- {}".format(dist_pos,mining_func_no_Constraint.pos_pair_dist_std))
-    print("proccessing took: {} seconds".format(time.time()-start_time))
-    print("EVAL : Epoch {} Iteration {}: positives_acc = {}, Number of mined positives = {}".format(epoch, batch_idx, 1-sum_pos_err/(batch_counter), mining_func_err.num_pos_pairs))
-    print("EVAL : Epoch {} Iteration {}: negative_acc = {}, Number of mined negatives = {}".format(epoch, batch_idx, 1-sum_neg_err/(batch_counter), mining_func_err.num_neg_pairs))
-    return 1-sum_pos_err/batch_counter , 1-sum_neg_err/batch_counter
+    print("negative average distance:{}".format(dist_neg))
+    print("positive average distance:{}".format(dist_pos))
+    print(f"proccessing took: {(time.time()-start_time):.2f} seconds")
+    pos_acc_precetage = (1 - sum_pos_err / (batch_counter)) * 100
+    neg_acc_precetage = (1 - sum_neg_err/(batch_counter)) * 100
+    print(f"EVAL : Epoch {epoch} Iteration {batch_idx}: positives_acc = {(pos_acc_precetage):.2f}, Number of mined positives = {mining_func_err.num_pos_pairs}")
+    print(f"EVAL : Epoch {epoch} Iteration {batch_idx}: negative_acc = {neg_acc_precetage}, Number of mined negatives = {mining_func_err.num_neg_pairs}")
+    return pos_acc_precetage , neg_acc_precetage
 
 def main():
   #Declaring GPU device
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
   print(f'You are using {device} device')
-
+  #resnet18 = models.resnet18(pretrained=True)
   #Hyperparametes
-  batch_size = 2048
+  batch_size = 128
   epochs = 20
   learning_rate = 0.003
-  learning_rate_list = [0.0001, 0.0005, 0.001, 0.003, 0.005, 0.01]
   optimizer_type = "Adam"
   waveform_length_in_seconds = 3
   sample_rate = 16000
@@ -162,16 +194,19 @@ def main():
 
   #Get fairseq wav2vec model
   cp_path = '/home/Daniel/DeepProject/wav2vec/wav2vec_large.pt'
-  model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
+  model, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
   model = model[0].to(device)
   model.eval()
+  model.is_generation_fast = True   #what happens in here?
+  print(model)
+  #print(resnet18)
 
   helper = sv_helper(model)
-  #Get train & test datasets and DataLoaders
+  #region Get train & test datasets and DataLoaders
   train_data = SV_LIBRISPEECH('/home/Daniel/DeepProject/',
                                  folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG, download=False)
   print(f'Number of training examples(utterances): {len(train_data)}')
-  #my_train_loader = torch.utils.data.DataLoader(my_train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
+  
   train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
   test_data = SV_LIBRISPEECH('/home/Daniel/DeepProject/',
@@ -180,18 +215,16 @@ def main():
                                 download = False)
   print(f'Number of test examples(utterances): {len(test_data)}')
   test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-
+  #endregion
+  
   net = Models.FC_SV()
-  optimizer = optim.AdamW(net.parameters(), lr=learning_rate)  #need to check what the wav2vec2 paper did with the learning rate (i think it was frozen for big amount of steps and afterwards updated each step)
-  print(net)
+  dataiter = iter(train_loader)
+  graph_input, graph_labels = dataiter.next()
+  writer.add_graph(net, graph_input)
+  optimizer = optim.Adam(net.parameters(), lr=learning_rate)  #need to check what the wav2vec2 paper did with the learning rate (i think it was frozen for big amount of steps and afterwards updated each step)
   ### pytorch-metric-learning stuff ###
   distance = distances.LpDistance(normalize_embeddings=True)
   reducer = reducers.ThresholdReducer(low = 0)
-  #loss_func = losses.ContrastiveLoss(pos_margin=0, neg_margin=0.5)
-  #loss_func = losses.TripletMarginLoss(margin = 0.2, distance = distance, reducer = reducer)
-  #mining_func = miners.TripletMarginMiner(margin = 0.2, distance = distance, type_of_triplets = "semihard")
-  #mining_func = miners.PairMarginMiner(pos_margin=0.2, neg_margin=0.8)
-  #loss_func =  losses.ContrastiveLoss(pos_margin=0.2, neg_margin=0.8, distance = distance, reducer = reducer)
   ### train proccess
   loss_func = losses.ContrastiveLoss(pos_margin=0.01, neg_margin=0.05,reducer = reducer)
   train_mining_func = miners.PairMarginMiner(pos_margin=0.01, neg_margin=0.05)
@@ -199,14 +232,13 @@ def main():
   test_err_mining_func = miners.PairMarginMiner(pos_margin=threshold, neg_margin=threshold)
   test_no_constraint_mining_func = miners.PairMarginMiner(collect_stats=True,pos_margin=0., neg_margin=100.)
   ### pytorch-metric-learning stuff ###
-
-  #TO DO: loop over different hyperparameters!!
   for epoch in range(epochs):
     start_train_time = time.time()
     train(net, loss_func, train_mining_func, device, train_loader, optimizer, epoch)
     print(f'Finished train epoch in {(time.time() - start_train_time):.2f}')
-    pos_acc , neg_acc = evaluation(test_loader, net, test_err_mining_func, test_no_constraint_mining_func, device, epoch)
-    print("test accuracy={}".format(0.5*(pos_acc + neg_acc)))
+    pos_acc , neg_acc = evaluation(test_loader, net, test_err_mining_func,test_no_constraint_mining_func,device,epoch)
+    print("test accuracy={}".format(0.5 * (pos_acc + neg_acc)))
+  writer.close()
 
 
 if __name__ == '__main__':

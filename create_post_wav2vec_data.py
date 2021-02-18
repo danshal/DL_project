@@ -82,6 +82,8 @@ for i in walker:
       if print_flag == True:
         print(audio_repr.shape[2])
       avg_pool = nn.AvgPool1d(audio_repr.shape[2])
+      max_pool = nn.MaxPool1d(audio_repr.shape[2])
+      #max_repr = max_pool(audio_repr)
       avg_repr = avg_pool(audio_repr)
       avg_repr = torch.squeeze(avg_repr)
       if print_flag == True:
