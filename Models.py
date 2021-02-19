@@ -178,6 +178,7 @@ class Wav2vecTuning(nn.Module):
     x = x.squeeze()
     x = self.wav2vec.feature_extractor(x)
     x = self.wav2vec.feature_aggregator(x)
+    #maybe add an avgpool layer in here?
     x = x.view(-1, x.shape[1] * x.shape[2]) #The assumption here is that we get the full repr size
     x = self.top_model(x)
     return x

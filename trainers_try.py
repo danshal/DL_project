@@ -169,14 +169,14 @@ def main():
   helper = sv_helper(model)
   #Get train & test datasets and DataLoaders
   train_data = SV_LIBRISPEECH('/home/Daniel/DeepProject/',
-                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG, download=False)
+                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_MAX, download=False)
   print(f'Number of training examples(utterances): {len(train_data)}')
   #my_train_loader = torch.utils.data.DataLoader(my_train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
   train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
   test_data = SV_LIBRISPEECH('/home/Daniel/DeepProject/',
                                 url = "test-clean",
-                                folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG_TEST,
+                                folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_MAX_TEST,
                                 download = False)
   print(f'Number of test examples(utterances): {len(test_data)}')
   test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)

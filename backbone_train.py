@@ -115,7 +115,7 @@ def balance_pairs_amount(indices_tuple):
 def train(model, loss_func, mining_func, device, train_loader, optimizer, epoch):
   model.to(device)
   model.train()
-  resnet_time = time.time()
+  start_time = time.time()
   for batch_idx, (data, labels) in enumerate(train_loader):
      data, labels = data.to(device), labels.to(device)
      optimizer.zero_grad()
@@ -199,7 +199,7 @@ def main():
   print(f'Number of training examples(utterances): {len(train_data)}')
 
   #my_train_loader = torch.utils.data.DataLoader(my_train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
-  train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
+  train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
   test_data = SV_LIBRISPEECH('/home/Daniel/DeepProject/',
                                 url = "test-clean",
