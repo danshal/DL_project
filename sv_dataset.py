@@ -180,7 +180,7 @@ class SV_LIBRISPEECH_PAIRS(Dataset):
         walker = walk_files(self._path, suffix=self._ext, prefix=False, remove_suffix=True)
         self._walker = list(walker)
         self._last_n = -1
-        self._state = 1 #1 -> positive & counter = 1 ;  2 -> positive & counter = 2 ; 3 -> negative & counter = 1 ; 4 -> negative & counter = 2
+        self._state = 1 #1 -> positive & counter = 0 ;  2 -> positive & counter = 1
   
 
     def __getitem__(self, n: int) -> Tuple[Tensor, int]:
@@ -197,24 +197,14 @@ class SV_LIBRISPEECH_PAIRS(Dataset):
             fileid = self._walker[n]  #get file name without .flac suffix
             self._last_n = n
             self._state = 2
-        elif self._state == 3:
-            fileid = self._walker[n]  #get file name without .flac suffix
-            self._last_n = n
-            self._state = 4
-        elif self._state == 4:
-            fileid = self._walker[n]  #get file name without .flac suffix
-            self._last_n = n
-            self._state = 1
         elif self._state == 2:
-            jump = int(random.uniform(1, 15))
+            jump = int(random.uniform(1, 30))
             if self._last_n + jump >= len(self._walker):
                 fileid = self._walker[self._last_n - jump]  #get file name without .flac suffix
                 #maybe add another saftey check here if self._last_n - jump < 0 and if so just do -> fileid = self._walker[n] 
             else:
                 fileid = self._walker[self._last_n + jump]  #get file name without .flac suffix
-            self._state = 3
-        
-        #librispeech_item, speaker_id = load_sv_librispeech_item(fileid, self._path, self._ext_audio)
+            self._state = 1
         return load_sv_librispeech_item(fileid, self._path, self._ext)
 
     def __len__(self) -> int:
