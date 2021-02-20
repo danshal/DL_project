@@ -69,13 +69,16 @@ class Wav2vecTuning(nn.Module):
     self.wav2vec, _, _ = fairseq.checkpoint_utils.load_model_ensemble_and_task([self._cp_path])
     self.wav2vec = self.wav2vec[0]  #load pretrained model
     self.top_model = top_model  #our wav2vec on top model
-
+    self.pooling = nn.AvgPool1d(298)
   
   def forward(self, x):
     x = x.squeeze()
     x = self.wav2vec.feature_extractor(x)
     x = self.wav2vec.feature_aggregator(x)
-    x = x.view(-1, x.shape[1] * x.shape[2]) #The assumption here is that we get the full repr size
+    #maybe add an avgpool layer in here?
+    #ori: ofcourse!!
+    x =  torch.squeeze(self.pooling(x))
+    #x = x.view(-1, x.shape[1] * x.shape[2]) #The assumption here is that we get the full repr size
     x = self.top_model(x)
     return x
 
