@@ -21,6 +21,8 @@ my_parser = argparse.ArgumentParser(description='Get audio representations of da
 my_parser.add_argument('data_path', metavar='data_path', type=str, help='path to audio files to be represented')
 my_parser.add_argument('dst_path', metavar='dst_path', type=str, help='path to save audio representations')
 my_parser.add_argument('--avg', default=False, action='store_true', help='boolean flag. When true -> save avg on all time axis to get representations shape of [512,1]')
+my_parser.add_argument('--max', default=False, action='store_true', help='boolean flag. When true -> save max on all time axis to get representations shape of [512,1]')
+my_parser.add_argument('--conv', default=False, action='store_true', help='boolean flag. When true -> save 20 time vectors to get representations shape of [512,20]')
 
 args = my_parser.parse_args()
 args = vars(args)
@@ -37,13 +39,11 @@ helper = sv_helper(model)
 data_path = args['data_path']
 dst_data_path = args['dst_path']
 is_avgpool = args['avg']
-# is_avgpool = 0
-# if is_avgpool == 0:
-#   is_avgpool = False
-# else:
-#   is_avgpool = True
-#is_avgpool = args.avg
+is_max = args['max']
+is_conv = args['conv']
 print(is_avgpool)
+print(is_max)
+print(is_conv)
 rootDir = '/home/Daniel/DeepProject/dataset/'
 file_ext = '.flac'
 walker = walk_files(data_path, suffix=file_ext, prefix=False, remove_suffix=True)
@@ -56,8 +56,6 @@ try:
   if not os.path.exists(f'{dst_data_path}/{speaker_counter}'):
     print('making directory!')
     os.mkdir(f'{dst_data_path}/{speaker_counter}')
-    #print('asdasdf')
-    #os.makedirs(f'{dst_data_path}/{speaker_counter}', 0o700)
 except OSError:
   print('ERROR delete current dataset folder')
   pass
@@ -79,20 +77,16 @@ for i in walker:
     waveform = waveform.to(device)
     audio_repr = helper.get_tensor_repr(waveform)
     if is_avgpool == True:
-      if print_flag == True:
-        print(audio_repr.shape[2])
-      avg_pool = nn.AvgPool1d(audio_repr.shape[2])
-      max_pool = nn.MaxPool1d(audio_repr.shape[2])
-      #max_repr = max_pool(audio_repr)
-      avg_repr = avg_pool(audio_repr)
-      avg_repr = torch.squeeze(avg_repr)
-      if print_flag == True:
-        print(avg_repr.shape)
-        print_flag = False
+      pool_operation = nn.AvgPool1d(audio_repr.shape[2])
+      pool_repr = pool_operation(audio_repr)
+    elif is_max == True:
+      pool_operation = nn.MaxPool1d(audio_repr.shape[2])
+      pool_repr = pool_operation(audio_repr)
+    elif is_conv == True:
+      pool_operation = nn.AvgPool1d(audio_repr.shape[2] - 20 + 1, 1)
+      pool_repr = pool_operation(audio_repr)
     else:
-      avg_repr = torch.squeeze(audio_repr)
-      if print_flag == True:
-        print(avg_repr.shape)
-        print_flag = False
-    torch.save(avg_repr, f'{dst_data_path}/{speaker_counter}/{speaker_counter}-{speaker_utterace_counter}.pt')
+      pool_repr = torch.squeeze(audio_repr)
+    pool_repr = torch.squeeze(pool_repr)
+    torch.save(pool_repr, f'{dst_data_path}/{speaker_counter}/{speaker_counter}-{speaker_utterace_counter}.pt')
     speaker_utterace_counter+=1

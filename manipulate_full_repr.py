@@ -9,8 +9,8 @@ from torch import nn
 import numpy as np
 import random
 
-data_path = '/home/Daniel/DeepProject/dataset/cut_train_data_360_full_repr/'
-dst_data_path = f'/home/Daniel/DeepProject/dataset/cut_train_data_conv_repr/'
+data_path = '/home/Daniel/DeepProject/dataset/cut_test_full_repr/'
+dst_data_path = f'/home/Daniel/DeepProject/dataset/cut_test_conv_repr/'
 rootDir = '/home/Daniel/DeepProject/dataset/'
 
 file_ext = '.pt'
