@@ -11,10 +11,12 @@ class NAIVE_SV(nn.Module):
        1. Avg pool on whole time axis (298 samples)
        2. Linear transformation that will output as number of speakers'''
 
-    def __init__(self, speakers_num):
+    def __init__(self, width, speakers_num):
         super(NAIVE_SV, self).__init__()
         self._height = 512  # according wav2vec last conv layer kernels amount
+        self._width = width
         self.speakers_num = speakers_num
+        #self.avg_pool = nn.AvgPool1d(kernel_size=self._width)
         self.fc = nn.Sequential(
             nn.Linear(self._height, self.speakers_num)
         )
@@ -37,17 +39,18 @@ class FC_SV(nn.Module):
        1. Avg pool on whole time axis (298 samples)
        2. Linear transformation that will output as number of speakers'''
 
-    def __init__(self):
+    def __init__(self, speakers_num):
         super(FC_SV, self).__init__()
         self._height = 512  # according wav2vec last conv layer kernels amount
         self.output_dim = 128
+        self.speakers_num = speakers_num
         #self.avg_pool = nn.AvgPool1d(kernel_size=self._width)
         self.fc = nn.Sequential(
             nn.Linear(self._height, self.output_dim),
             #nn.Dropout(0.2),
             nn.ReLU(),
             nn.BatchNorm1d(self.output_dim),
-            nn.Linear(self.output_dim,self.output_dim)
+            nn.Linear(self.output_dim, self.speakers_num)
         )
 
     def forward(self, x):
@@ -174,7 +177,7 @@ class FC_SV_TUNING(nn.Module):
         super(FC_SV_TUNING, self).__init__()
         self._height = height  # according wav2vec last conv layer kernels amount
         self.output_dim = 128
-        self.output_dim2 = 64
+        self.output_dim2 = 128
         #self.avg_pool = nn.AvgPool1d(kernel_size=self._width)
         self.fc = nn.Sequential(
             nn.Linear(self._height, self.output_dim),

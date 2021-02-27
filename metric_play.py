@@ -153,8 +153,8 @@ def train(model,pos_margin, neg_margin , loss_func , reducer, device, train_load
      total_num_of_pos_pairs += no_constraint_mining_func.num_pos_pairs
      num_of_neg_pairs_under_margin += margin_mining_func.num_neg_pairs
      total_num_of_neg_pairs += no_constraint_mining_func.num_neg_pairs
-     if indices_tuple[0].shape < indices_tuple[2].shape:
-       indices_tuple = balance_pairs_amount(indices_tuple)  #force positive and negative pairs to be with equal amount 
+    #  if indices_tuple[0].shape < indices_tuple[2].shape:
+    #    indices_tuple = balance_pairs_amount(indices_tuple)  #force positive and negative pairs to be with equal amount
      loss = loss_func(embeddings, labels, indices_tuple)
      writer.add_scalar(f'Train_Loss/train_{epoch}_epoch', loss, batch_idx)
      #mean summary
@@ -172,11 +172,11 @@ def train(model,pos_margin, neg_margin , loss_func , reducer, device, train_load
     #      start_time = time.time()
   if update_flag:
     if num_of_pos_pairs_over_margin / total_num_of_pos_pairs > 0.7:
-            pos_margin = margin_mining_func.pos_margin * 1.1
+            pos_margin = margin_mining_func.pos_margin * 1.2
     elif num_of_pos_pairs_over_margin / total_num_of_pos_pairs < 0.3:
-            pos_margin = margin_mining_func.pos_margin * 0.9
+            pos_margin = margin_mining_func.pos_margin * 0.4
     if num_of_neg_pairs_under_margin / total_num_of_neg_pairs > 0.95:
-            neg_margin = margin_mining_func.neg_margin * 0.9
+            neg_margin = margin_mining_func.neg_margin * 0.5
     elif num_of_neg_pairs_under_margin / total_num_of_neg_pairs < 0.05:
             neg_margin = margin_mining_func.neg_margin * 1.1
   print(f"******EPOCH {epoch}********")
@@ -236,9 +236,9 @@ def main():
   #endregion
   
   #Hyperparametes
-  batch_size = 64
-  epochs = 40
-  learning_rate = 0.000005
+  batch_size = 4096
+  epochs = 100
+  learning_rate = 0.003
 
 
   #model_type = 'FC'
@@ -257,7 +257,7 @@ def main():
     net = Models.ConvNet()
   
   train_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
-                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO, download=False, file_ext='.flac')
+                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG, download=False)
   print(f'Number of training examples(utterances): {len(train_data)}')
 
   #my_train_loader = torch.utils.data.DataLoader(my_train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
@@ -265,14 +265,14 @@ def main():
 
   test_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
                                 url = "test-clean",
-                                folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO_TEST,
-                                download = False, file_ext='.flac')
+                                folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG_TEST,
+                                download = False)
   print(f'Number of test examples(utterances): {len(test_data)}')
   test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
   optimizer = optim.Adam(net.parameters(), lr=learning_rate)  #need to check what the wav2vec2 paper did with the learning rate (i think it was frozen for big amount of steps and afterwards updated each step)
-  lmbda = lambda epoch: 0.9
-  scheduler = optim.lr_scheduler.MultiplicativeLR(optimizer,lr_lambda = lmbda)
+  #lmbda = lambda epoch: 0.9
+  #scheduler = optim.lr_scheduler.MultiplicativeLR(optimizer,lr_lambda = lmbda)
 
   ### pytorch-metric-learning stuff ###
   #distance = distances.LpDistance(normalize_embeddings=True)
@@ -291,7 +291,7 @@ def main():
   test_no_constraint_mining_func = miners.PairMarginMiner(collect_stats=True,pos_margin=0., neg_margin=100.)
   ### pytorch-metric-learning stuff ###
 
-  patience = 10
+  patience = 30
   early_stopping = EarlyStopping(patience=patience, verbose=True,
    path = f'/home/Daniel/DeepProject/checkpoints/feature_extractor/daniel_{cur_time}.pt',
    pos_margin=pos_margin, neg_margin=neg_margin, lr=learning_rate, batch_size=batch_size)
@@ -299,7 +299,7 @@ def main():
   update_flag = True
   for epoch in range(epochs):
       start_train_time = time.time()
-      pos_margin , neg_margin  = train(net,pos_margin , neg_margin,loss_func, reducer, device, train_loader, optimizer, epoch,update_flag)
+      pos_margin , neg_margin  = train(net, pos_margin, neg_margin, loss_func, reducer, device, train_loader, optimizer, epoch,update_flag)
       print(f'Finished train epoch in {(time.time() - start_train_time):.2f} seconds')
       training_eer = evaluation(test_loader, net, test_no_constraint_mining_func, device, epoch, early_stopping , False)
       validation_eer = evaluation(test_loader, net, test_no_constraint_mining_func, device, epoch, early_stopping, True)
@@ -313,9 +313,9 @@ def main():
         last_eer = training_eer
       else:
         update_flag = False
-      if epoch / epochs > 0.2:
-        scheduler.step()
-        print(f"Updated learning rate! Now equals = {scheduler.get_last_lr()[0]}")
+      # if epoch / epochs > 0.2:
+      #   scheduler.step()
+      #   print(f"Updated learning rate! Now equals = {scheduler.get_last_lr()[0]}")
   print(f'Saved model with lowest EER = {(early_stopping.val_loss_min):.2f}%')
   writer.close()
 

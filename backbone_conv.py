@@ -236,8 +236,8 @@ def main():
   #resnet18 = models.resnet18(pretrained=True)
   #Hyperparametes
   batch_size = 64
-  epochs = 40
-  learning_rate = 0.000005
+  epochs = 50
+  learning_rate = 0.0005
 
   #region Get train & test datasets and DataLoaders
   train_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
@@ -256,18 +256,19 @@ def main():
   #endregion
 
 
-  on_top_net = Models.FC_SV()
-  on_top_net.load_state_dict(torch.load('/home/Daniel/DeepProject/checkpoints/feature_extractor/eer_3_02_p05_n083.pt'))
+  on_top_net = Models.ConvNet()
+  loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/feature_extractor/conv_4_1.pt')
+  on_top_net.load_state_dict(loaded_checkpoint['state_dict'])
   net = Models.Wav2vecTuning(on_top_net)
   optimizer = optim.Adam(net.parameters(), lr=learning_rate)
-  lmbda = lambda epoch: 1.05
+  lmbda = lambda epoch: 0.9
 #   lmbda2 = lambda epoch: 1.2
   scheduler = optim.lr_scheduler.MultiplicativeLR(optimizer, lr_lambda = lmbda)
 
   ### pytorch-metric-learning stuff ###
   reducer = reducers.ThresholdReducer(low = 0)
   ### train proccess
-  pos_margin = 0.5
+  pos_margin = 0.2
   neg_margin = 0.83
   loss_func = losses.ContrastiveLoss(pos_margin=0, neg_margin=neg_margin,reducer = reducer)
   ### test proccess
@@ -275,7 +276,7 @@ def main():
   test_no_constraint_mining_func = miners.PairMarginMiner(collect_stats=True,pos_margin=0., neg_margin=100.)
   ### pytorch-metric-learning stuff ###
 
-  patience = 10
+  patience = 20
   early_stopping = EarlyStopping(patience=patience, verbose=True,
    path = f'/home/Daniel/DeepProject/checkpoints/fine_tuning/checkpoint_{cur_time}.pt',
    pos_margin=pos_margin, neg_margin=neg_margin, lr=learning_rate, batch_size=batch_size)
