@@ -98,12 +98,18 @@ def parse_option():
 def main():
 
 
-    meta_data_set = my_meta_dataset('/home/Daniel/DeepProject/',
+    meta_data_train_set = my_meta_dataset('/home/Daniel/DeepProject/',
                                  folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO, download=False, file_ext='.flac')
-    print(f'Number of training examples(utterances): {len(meta_data_set)}')
-    meta_testloader = DataLoader(meta_data_set,
+    print(f'Number of training examples(utterances): {len(meta_data_train_set)}')
+    meta_trainloader = DataLoader(meta_data_train_set,
                                     batch_size=batch_size, shuffle=True,
                                     num_workers=1)
+    meta_data_test_set = my_meta_dataset('/home/Daniel/DeepProject/',
+                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO_TEST, download=False, file_ext='.flac')
+    print(f'Number of training examples(utterances): {len(meta_data_test_set)}')
+    meta_testloader = DataLoader(meta_data_test_set,
+                                    batch_size=batch_size, shuffle=True,
+                                    num_workers=1)                                
                                      
     speakers_number = len(list(os.walk('/home/Daniel/DeepProject/dataset/cut_train_data_360_repr/')))
     print(speakers_number)
@@ -113,26 +119,26 @@ def main():
     #                                             fix_seed=False),
     #                             batch_size=opt.test_batch_size, shuffle=False, drop_last=False,
     # load model
-    # on_top_model = Models.FC_SV()
-    # loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/feature_extractor/eer_3_02_p05_n083.pt')
-    # on_top_model.load_state_dict(loaded_checkpoint) 
-    # model = Models.Wav2vecTuning(on_top_model)
-    cp_path = '/home/Daniel/DeepProject/wav2vec/wav2vec_large.pt'
-    model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
-    model = model[0]
+    on_top_model = Models.FC_SV()
+    loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/feature_extractor/eer_3_02_p05_n083.pt')
+    on_top_model.load_state_dict(loaded_checkpoint) 
+    model = Models.Wav2vecTuning(on_top_model)
+    # cp_path = '/home/Daniel/DeepProject/wav2vec/wav2vec_large.pt'
+    # model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
+    # model = model[0]
     if torch.cuda.is_available():
         model = model.cuda()
         cudnn.benchmark = True
 
-    # evalation
+    # evaluation
     start = time.time()
-    val_acc, val_std = meta_test(model, meta_testloader)
+    val_acc, val_std = meta_test(model, meta_trainloader)
     val_time = time.time() - start
     print('val_acc: {:.4f}, val_std: {:.4f}, time: {:.1f}'.format(val_acc, val_std,
                                                                   val_time))
 
     start = time.time()
-    val_acc_feat, val_std_feat = meta_test(model, meta_valloader, use_logit=False)
+    val_acc_feat, val_std_feat = meta_test(model, meta_testloader, use_logit=False)
     val_time = time.time() - start
     print('val_acc_feat: {:.4f}, val_std: {:.4f}, time: {:.1f}'.format(val_acc_feat,
                                                                        val_std_feat,
