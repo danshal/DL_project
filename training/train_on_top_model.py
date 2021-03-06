@@ -25,6 +25,7 @@ from torchaudio.datasets.utils import (
     extract_archive,
     walk_files,
 )
+#torchaudio.set_audio_backend("sox_io")
 from multiprocessing import set_start_method
 import multiprocessing
 import matplotlib.pyplot as plt
@@ -37,12 +38,12 @@ try:
 except:
     print("Install tqdm to use --log-format=tqdm")
 
+from helper_functions import sv_helper
 from sv_dataset import SV_LIBRISPEECH
 from sv_dataset import SV_LIBRISPEECH_PAIRS
 import Models
 import time
 from pytorch_metric_learning import losses, miners, distances, reducers, testers, samplers
-import pytorch_metric_learning.utils.loss_and_miner_utils as lmu
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 import faiss
 import torchvision.models as models
@@ -79,22 +80,19 @@ def compute_eer(miner):
     return eer
 #endregion
 
-#region Xavier Initialization
-def init_weights(m):
-    if type(m) == nn.Linear:
-        torch.nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain('relu'))
-        m.bias.data.fill_(0.01)
-#endregion
 
 #region Dataset Constants
 rootDir = '/home/Daniel/DeepProject/dataset'
 URL = "train-clean-100"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR = "cut_train_data_360_full_repr"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG = "cut_train_data_360_repr"
+FOLDER_IN_ARCHIVE_THREE_SEC_REPR_CONV = "cut_train_conv"
 FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO = "cut_train_data_360"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR_TEST = "cut_test_full_repr"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG_TEST = "cut_test_repr"
 FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO_TEST = "cut_test-clean"
+FOLDER_IN_ARCHIVE_THREE_SEC_REPR_CONV_TEST = "cut_test_conv"
+
 FOLDER_IN_ARCHIVE_ORIGINAL_LIBRI = "LibriSpeech"
 _CHECKSUMS = {
     "http://www.openslr.org/resources/12/dev-clean.tar.gz":
@@ -121,7 +119,7 @@ np.random.seed(42)
 
 cur_time = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
 base_summary_path = '/home/Daniel/DeepProject/'
-writer_path = f'{base_summary_path}/summary_events_{cur_time}'
+writer_path = f'{base_summary_path}/summary_events_{cur_time}_train_test_graph'
 writer = SummaryWriter(writer_path)
 
 def balance_pairs_amount(indices_tuple):
@@ -132,9 +130,10 @@ def balance_pairs_amount(indices_tuple):
     return tuple(list_indices_tuple)
 
 
-def train(model,pos_margin, neg_margin , loss_func , reducer, device, train_loader, optimizer, epoch,update_flag):
+def train(model,pos_margin, neg_margin , loss_func , reducer, device, train_loader, optimizer, epoch,update_flag,loss,batch_counter,testloader):
   margin_mining_func = miners.PairMarginMiner(pos_margin=pos_margin, neg_margin=neg_margin)
   no_constraint_mining_func = miners.PairMarginMiner(pos_margin=0, neg_margin=100)
+  total_loss_func = losses.ContrastiveLoss(pos_margin=0, neg_margin=100,reducer = reducer)
   model.to(device)
   model.train()
   num_of_pos_pairs_over_margin = 0
@@ -153,29 +152,35 @@ def train(model,pos_margin, neg_margin , loss_func , reducer, device, train_load
      num_of_neg_pairs_under_margin += margin_mining_func.num_neg_pairs
      total_num_of_neg_pairs += no_constraint_mining_func.num_neg_pairs
     #  if indices_tuple[0].shape < indices_tuple[2].shape:
-    #    indices_tuple = balance_pairs_amount(indices_tuple)  #force positive and negative pairs to be with equal amount
+    #     indices_tuple = balance_pairs_amount(indices_tuple)  #force positive and negative pairs to be with equal amount 
      loss = loss_func(embeddings, labels, indices_tuple)
-     writer.add_scalar(f'Train_Loss/train_{epoch}_epoch', loss, batch_idx)
+     
+     writer.add_scalar(f'Train/dist_diff', no_constraint_mining_func.neg_pair_dist - no_constraint_mining_func.pos_pair_dist,batch_counter)
+     
      #mean summary
-     writer.add_scalars(f'Mean_Distance/train_epoch_{epoch}', {'mean_pos_pair_dist': margin_mining_func.pos_pair_dist, 'mean_neg_pair_dist': margin_mining_func.neg_pair_dist}, batch_idx)
+     writer.add_scalars(f'Distance/Mean', {'mean_pos_pair_dist': no_constraint_mining_func.pos_pair_dist, 'mean_neg_pair_dist': no_constraint_mining_func.neg_pair_dist}, batch_counter)
      #std summary
-     writer.add_scalars(f'Std_Distance/train_epoch_{epoch}', {'pos_pair_dist_std': margin_mining_func.pos_pair_dist_std, 'neg_pair_dist_std': margin_mining_func.neg_pair_dist_std}, batch_idx)
-     #min & max summary
-     writer.add_scalars(f'Min_Max_Distance/train_epoch_{epoch}', {'pos_pair_min_dist': margin_mining_func.pos_pair_min_dist, 'neg_pair_max_dist': margin_mining_func.neg_pair_max_dist}, batch_idx)
+     writer.add_scalars(f'Distance/STD', {'pos_pair_dist_std': no_constraint_mining_func.pos_pair_dist_std, 'neg_pair_dist_std': no_constraint_mining_func.neg_pair_dist_std}, batch_counter)
      loss.backward()
      optimizer.step()
-    #  if batch_idx % 200 == 0:         
-    #      print("Average positive distance:{} +- {} average negative distance:{} +- {}".format(margin_mining_func.pos_pair_dist,margin_mining_func.pos_pair_dist_std,margin_mining_func.neg_pair_dist,margin_mining_func.neg_pair_dist_std))
-    #      print(f"Number of mined pos pairs = {margin_mining_func.num_pos_pairs} , Number of mined neg pairs = {margin_mining_func.num_neg_pairs}")
-    #      print(f"Epoch {epoch} Iteration {batch_idx}: Loss = {loss},  , 200 batches training took:{(time.time()-start_time):.2f}")
-    #      start_time = time.time()
+     batch_counter += 1
+     if batch_idx % 20 == 0:   
+        #  batch_eer = compute_eer(no_constraint_mining_func)
+        #  test_eer = evaluation(testloader, model, no_constraint_mining_func, device, epoch, early_stopping=None,isVal= False)
+        #  writer.add_scalar(f'Train/train_eer', (1-batch_eer)*100,int(batch_counter/20))
+        #  writer.add_scalar(f'Train/test_eer', test_eer,int(batch_counter/20))       
+         print("Average positive distance:{} +- {} average negative distance:{} +- {}".format(no_constraint_mining_func.pos_pair_dist,no_constraint_mining_func.pos_pair_dist_std,margin_mining_func.neg_pair_dist,margin_mining_func.neg_pair_dist_std))
+         print(f"Number of mined pos pairs = {no_constraint_mining_func.num_pos_pairs} , Number of mined neg pairs = {no_constraint_mining_func.num_neg_pairs}")
+         print(f"Epoch {epoch} Iteration {batch_idx}: Loss = {loss}")
+        #  start_time = time.time()
+     
   if update_flag:
     if num_of_pos_pairs_over_margin / total_num_of_pos_pairs > 0.7:
-            pos_margin = margin_mining_func.pos_margin * 1.2
+            pos_margin = margin_mining_func.pos_margin * 1.1
     elif num_of_pos_pairs_over_margin / total_num_of_pos_pairs < 0.3:
-            pos_margin = margin_mining_func.pos_margin * 0.4
+            pos_margin = margin_mining_func.pos_margin * 0.9
     if num_of_neg_pairs_under_margin / total_num_of_neg_pairs > 0.95:
-            neg_margin = margin_mining_func.neg_margin * 0.5
+            neg_margin = margin_mining_func.neg_margin * 0.9
     elif num_of_neg_pairs_under_margin / total_num_of_neg_pairs < 0.05:
             neg_margin = margin_mining_func.neg_margin * 1.1
   print(f"******EPOCH {epoch}********")
@@ -187,7 +192,7 @@ def train(model,pos_margin, neg_margin , loss_func , reducer, device, train_load
   print(f"Positive pairs over margin:{num_of_pos_pairs_over_margin} , percentage : {100*num_of_pos_pairs_over_margin/total_num_of_pos_pairs}%")
 
 
-  return pos_margin , neg_margin
+  return pos_margin , neg_margin , batch_counter
 
 
 
@@ -210,7 +215,7 @@ def evaluation(data_loader, model, mining_func_no_Constraint, device, epoch, ear
         sum_eer = sum_eer + batch_eer
         total_pos_pairs_dists = torch.cat([total_pos_pairs_dists.to(device) , mining_func_no_Constraint.pos_pair_all_dist])
         total_neg_pairs_dists = torch.cat([total_neg_pairs_dists.to(device) , mining_func_no_Constraint.neg_pair_all_dist])
-        if batch_idx % 200 == 0:
+        if batch_idx % 20 == 0:
             print("Finished evaluate {} batches".format(batch_idx))
     eer = sum_eer/(batch_idx+1)
     print("Negative average distance:{}+-{}".format(
@@ -218,9 +223,8 @@ def evaluation(data_loader, model, mining_func_no_Constraint, device, epoch, ear
     print("Positive average distance:{}+-{}".format(
             mining_func_no_Constraint.pos_pair_dist,mining_func_no_Constraint.pos_pair_dist_std))
     print(f"Proccessing took: {(time.time()-start_time):.2f} seconds")
-    writer.add_scalars(f'EER Vs Epoch/test', {'eer': eer}, epoch)
-    writer.add_histogram(f'Epoch {epoch} pos distance histogram',total_pos_pairs_dists)
-    writer.add_histogram(f'Epoch {epoch} neg distance histogram',total_neg_pairs_dists)
+    writer.add_histogram(f' pos distance histogram',total_pos_pairs_dists)
+    writer.add_histogram(f' neg distance histogram',total_neg_pairs_dists)
     if isVal:
       early_stopping((1-eer)*100, model)
       if early_stopping.early_stop:
@@ -236,42 +240,43 @@ def main():
   
   #Hyperparametes
   batch_size = 4096
-  epochs = 100
-  learning_rate = 0.003
+  epochs = 50
+  learning_rate = 0.01
 
 
-  #model_type = 'FC'
   model_type = 'FC'
-  if model_type == 'another_extractor':
-    on_top_net = Models.FC_SV()
-    net = Models.Wav2vecTuning(on_top_net)
-    loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/fine_tuning/checkpoint_2021_02_22-10_45_52_PM.pt')
-    net.load_state_dict(loaded_checkpoint['state_dict'])
-    net.top_model = Models.FC_SV()
-    net.apply(init_weights) #Add Xavier initialization for all the Linear layers
-  elif model_type == 'FC':
-    net = Models.FC_SV()
-    net.apply(init_weights) #Add Xavier initialization for all the Linear layers
+  if model_type == 'FC':
+    net = Models.FC_SV_thin()
+    train_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
+                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG, download=False)
+    print(f'Number of training examples(utterances): {len(train_data)}')
+    
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
+
+    test_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
+                                  url = "test-clean",
+                                  folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG_TEST,
+                                  download = False)
+    print(f'Number of test examples(utterances): {len(test_data)}')
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=len(test_data), shuffle=True, num_workers=4, pin_memory=True)
   elif model_type == 'Conv':
     net = Models.ConvNet()
-  
-  train_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
-                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG, download=False)
-  print(f'Number of training examples(utterances): {len(train_data)}')
+    train_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
+                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_CONV, download=False)
+    print(f'Number of training examples(utterances): {len(train_data)}')
+    
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
-  #my_train_loader = torch.utils.data.DataLoader(my_train_data, batch_size=batch_size, shuffle=True, collate_fn=my_collate)
-  train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
-
-  test_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
-                                url = "test-clean",
-                                folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG_TEST,
-                                download = False)
-  print(f'Number of test examples(utterances): {len(test_data)}')
-  test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    test_data = SV_LIBRISPEECH_PAIRS('/home/Daniel/DeepProject/',
+                                  url = "test-clean",
+                                  folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_REPR_CONV_TEST,
+                                  download = False)
+    print(f'Number of test examples(utterances): {len(test_data)}')
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=len(test_data), shuffle=True, num_workers=4, pin_memory=True)
 
   optimizer = optim.Adam(net.parameters(), lr=learning_rate)  #need to check what the wav2vec2 paper did with the learning rate (i think it was frozen for big amount of steps and afterwards updated each step)
-  #lmbda = lambda epoch: 0.9
-  #scheduler = optim.lr_scheduler.MultiplicativeLR(optimizer,lr_lambda = lmbda)
+  lmbda = lambda epoch: 0.9
+  scheduler = optim.lr_scheduler.MultiplicativeLR(optimizer,lr_lambda = lmbda)
 
   ### pytorch-metric-learning stuff ###
   #distance = distances.LpDistance(normalize_embeddings=True)
@@ -281,27 +286,27 @@ def main():
   ### train proccess
   loss = 'contrastive'
   if loss =='contrastive':
-    loss_func = losses.ContrastiveLoss(pos_margin=0, neg_margin=neg_margin, reducer = reducer)
-    #loss_func = losses.My_ContrastiveLoss(pos_margin=0, neg_margin=neg_margin, reducer = reducer)
+    loss_func = losses.ContrastiveLoss(pos_margin=0, neg_margin=neg_margin,reducer = reducer)
   elif loss =='angularLoss':
     loss_func = losses.AngularLoss()
 #   train_mining_func = miners.PairMarginMiner(pos_margin=0.01, neg_margin=0.1)
   ### test proccess
-  test_no_constraint_mining_func = miners.PairMarginMiner(collect_stats=True,pos_margin=0., neg_margin=100.)
+  test_no_constraint_mining_func = miners.PairMarginMiner(collect_stats=True,pos_margin=0., neg_margin=100000.)
   ### pytorch-metric-learning stuff ###
 
-  patience = 30
-  early_stopping = EarlyStopping(patience=patience, verbose=True,
-   path = f'/home/Daniel/DeepProject/checkpoints/feature_extractor/daniel_{cur_time}.pt',
-   pos_margin=pos_margin, neg_margin=neg_margin, lr=learning_rate, batch_size=batch_size)
+  patience = 50
+  early_stopping = EarlyStopping(patience=patience, verbose=True, path = f'/home/Daniel/DeepProject/checkpoints/feature_extractor/ori_{cur_time}.pt'  ,pos_margin = pos_margin, neg_margin = neg_margin , batch_size = batch_size)
   last_eer = 100
   update_flag = True
+  batch_counter = 0
   for epoch in range(epochs):
       start_train_time = time.time()
-      pos_margin , neg_margin  = train(net, pos_margin, neg_margin, loss_func, reducer, device, train_loader, optimizer, epoch,update_flag)
+      pos_margin , neg_margin,batch_counter  = train(net,pos_margin , neg_margin,loss_func, reducer, device, train_loader, optimizer, epoch,update_flag,loss,batch_counter,test_loader)
       print(f'Finished train epoch in {(time.time() - start_train_time):.2f} seconds')
       training_eer = evaluation(test_loader, net, test_no_constraint_mining_func, device, epoch, early_stopping , False)
       validation_eer = evaluation(test_loader, net, test_no_constraint_mining_func, device, epoch, early_stopping, True)
+      # writer.add_scalars(f'EER Vs Epoch', {'train_eer': training_eer ,'test_eer':validation_eer }, epoch)
+      writer.add_scalars(f'EER Vs Epoch', {'test_eer':validation_eer }, epoch)
       if validation_eer == -1:
           print('Early stopping')
           break
@@ -312,12 +317,11 @@ def main():
         last_eer = training_eer
       else:
         update_flag = False
-      # if epoch / epochs > 0.2:
-      #   scheduler.step()
-      #   print(f"Updated learning rate! Now equals = {scheduler.get_last_lr()[0]}")
+      if epoch / epochs > 0.02:
+        scheduler.step()
+        print(f"Updated learning rate! Now equals = {scheduler.get_last_lr()[0]}")
   print(f'Saved model with lowest EER = {(early_stopping.val_loss_min):.2f}%')
   writer.close()
-
 
 if __name__ == '__main__':
   main()

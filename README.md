@@ -1,5 +1,5 @@
 # One Shot Speaker Identification
-### This is the source code for the: "One Shot Speaker Identification: a Good Metric Is All You Need?" paper we wrote as part of the TAU Deep Learning 2021 course's final project.
+### This repo includes the source code for the: "One Shot Speaker Identification: a Good Metric Is All You Need?" paper we wrote as part of the TAU Deep Learning 2021 course's final project.
 
 ## Data
 In order to train or test our model, you will have to download the [LibriSpeech 360 hours clean dataset](https://www.openslr.org/resources/12/train-clean-360.tar.gz) for training purposes and the [validation dataset](https://www.openslr.org/resources/12/test-clean.tar.gz) and [test dataset](https://www.openslr.org/resources/12/dev-clean.tar.gz) also from the LibriSpeech project.
@@ -25,10 +25,19 @@ You can look at examples in data_preprocessing/create_datasets_commands.
 
 #### **Evaluation**
 If you wish to evaluate the one shot speaker identification task, you will have to run the following command:
+
 ***python eval_fewshot.py***
 
-#### Train Speaker Verification Using Metric Learning
-We should be able to get the weights path using argparse and the folders of the training src and validation src.
+#### **Train Speaker Verification Using Metric Learning**
+run the following script:
+***python train_on_top_model.py*** (add another argument to specify the weights path)
 
 
-#### Train Speaker Verification Using Classification
+#### **Train Speaker Verification Using Classification**
+For classification training without distillatin technique run:
+
+***python train_supervised.py***
+
+To get boost with self-distillation run:
+
+***python train_distillation.py***
