@@ -16,7 +16,7 @@ import argparse
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #create parser
-my_parser = argparse.ArgumentParser(description='Get audio representations of data_path audio files using wav2vec network. Pay Attention: Your data and dst paths have to be under /home/Daniel/DeepProject/dataset/')
+my_parser = argparse.ArgumentParser(description='Get audio representations of data_path audio files using wav2vec network. Pay Attention: Your data and dst paths have to be under /dataset/')
 #add arguments
 my_parser.add_argument('data_path', metavar='data_path', type=str, help='path to audio files to be represented')
 my_parser.add_argument('dst_path', metavar='dst_path', type=str, help='path to save audio representations')

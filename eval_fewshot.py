@@ -29,6 +29,21 @@ from eval.cls_eval import validate
 import os
 from datetime import datetime
 import json
+import numpy as np
+import argparse
+
+my_parser = argparse.ArgumentParser(description='Check different models of ours in one shot setup')
+my_parser.add_argument('my_model', metavar='data_path', type=str, help='Options are: Conv, FC, FC_TUNING, classification, classification_TUNING, class_distill')
+
+
+args = my_parser.parse_args()
+args = vars(args)
+
+model_name = args['my_model']
+
+#set for REPRODUCIBILITY
+torch.manual_seed(42)
+np.random.seed(42)
 
 # region Dataset Constants
 rootDir = '/home/Daniel/DeepProject/dataset'
@@ -39,6 +54,7 @@ FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO = "cut_train_data_360"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR_TEST = "cut_test_full_repr"
 FOLDER_IN_ARCHIVE_THREE_SEC_REPR_AVG_TEST = "cut_test_repr"
 FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO_TEST = "cut_test-clean"
+FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO_NEW_TEST = "cut_test_speakers"
 FOLDER_IN_ARCHIVE_ORIGINAL_LIBRI = "LibriSpeech"
 _CHECKSUMS = {
     "http://www.openslr.org/resources/12/dev-clean.tar.gz":
@@ -68,11 +84,11 @@ weight_decay = 0.0005
 epochs = 100
 #endregion
 
-with open('/home/Daniel/DeepProject/dataset/speakers_map.json', 'r') as f:
+with open('speakers_map.json', 'r') as f:
     labels_map_dict = json.load(f)
 
 
-save_folder = '/home/Daniel/DeepProject/classification/checkpoints'
+save_folder = 'checkpoints'
 
 def parse_option():
 
@@ -98,31 +114,59 @@ def parse_option():
 def main():
 
 
-    meta_data_train_set = my_meta_dataset('/home/Daniel/DeepProject/',
+    meta_data_train_set = my_meta_dataset('',
                                  folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO, download=False, file_ext='.flac')
     print(f'Number of training examples(utterances): {len(meta_data_train_set)}')
     meta_trainloader = DataLoader(meta_data_train_set,
                                     batch_size=batch_size, shuffle=True,
-                                    num_workers=1)
-    meta_data_test_set = my_meta_dataset('/home/Daniel/DeepProject/',
-                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO_TEST, download=False, file_ext='.flac')
+                                    num_workers=4)
+    meta_data_test_set = my_meta_dataset('',
+                                 folder_in_archive = FOLDER_IN_ARCHIVE_THREE_SEC_AUDIO_NEW_TEST, download=False, file_ext='.flac')
     print(f'Number of training examples(utterances): {len(meta_data_test_set)}')
     meta_testloader = DataLoader(meta_data_test_set,
                                     batch_size=batch_size, shuffle=True,
-                                    num_workers=1)                                
+                                    num_workers=4)
                                      
-    speakers_number = len(list(os.walk('/home/Daniel/DeepProject/dataset/cut_train_data_360_repr/')))
+    speakers_number = len(list(os.walk('dataset/cut_train_data_360_repr/')))
     print(speakers_number)
-    # meta_valloader = DataLoader(my_meta_dataset(args=opt, partition='val',
-    #                                             train_transform=train_trans,
-    #                                             test_transform=test_trans,
-    #                                             fix_seed=False),
-    #                             batch_size=opt.test_batch_size, shuffle=False, drop_last=False,
+   
+    #model_name = 'class_distill'# Conv, FC, FC_TUNING, classification, classification_TUNING, class_distill
     # load model
-    on_top_model = Models.FC_SV()
-    loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/feature_extractor/eer_3_02_p05_n083.pt')
-    on_top_model.load_state_dict(loaded_checkpoint) 
-    model = Models.Wav2vecTuning(on_top_model)
+    if model_name == 'Conv':
+        on_top_model = Models.ConvNet()
+        loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/feature_extractor/conv_4_1.pt') # no fine tune
+        on_top_model.load_state_dict(loaded_checkpoint['state_dict']) 
+        model = Models.Wav2vecTuning(on_top_model, True)
+    elif model_name == 'FC':
+        on_top_model = Models.FC_SV_TUNING(512)
+        loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/feature_extractor/eer_3_02_p05_n083.pt')
+        on_top_model.load_state_dict(loaded_checkpoint)
+        model = Models.Wav2vecTuning(on_top_model)
+    elif model_name == 'FC_TUNING':
+        on_top_model = Models.FC_SV_TUNING(512)
+        loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/fine_tuning/checkpoint_2021_02_23-11_10_55_PM_2.7.pt')
+        model = Models.Wav2vecTuning(on_top_model)
+        model.load_state_dict(loaded_checkpoint['state_dict'])
+    elif model_name == 'classification':
+        on_top_model = Models.FC_SV_CLASSIFICATION(speakers_number)
+        loaded_checkpoint = torch.load('/home/Daniel/DeepProject/checkpoints/classification/2021_02_25-07_25_30_AM_last_classification_99_acc.pth')
+        on_top_model.load_state_dict(loaded_checkpoint['model'])
+        on_top_model.fc = nn.Sequential(*[on_top_model.fc[0]])
+        model = Models.Wav2vecTuning(on_top_model)
+    elif model_name == 'classification_TUNING':
+        on_top_model = Models.FC_SV_CLASSIFICATION(speakers_number)
+        loaded_checkpoint = torch.load('/home/Daniel/DeepProject/classification/checkpoints/ckpt_epoch_80.pth')
+        model = Models.Wav2vecTuning(on_top_model)
+        model.load_state_dict(loaded_checkpoint['model'])
+        model.fc = nn.Sequential(*[on_top_model.fc[0]])
+    elif model_name == 'class_distill':
+        on_top_model = Models.FC_SV_CLASSIFICATION(speakers_number)
+        loaded_checkpoint = torch.load('/home/Daniel/DeepProject/classification/checkpoints/distill_class_tuning/distill_ckpt_epoch_20.pth')
+        model = Models.Wav2vecTuning(on_top_model)
+        model.load_state_dict(loaded_checkpoint['model'])
+        model.fc = nn.Sequential(*[on_top_model.fc[0]])
+        #do classification + distillation stuff -> remove last layer and check performence
+       
     # cp_path = '/home/Daniel/DeepProject/wav2vec/wav2vec_large.pt'
     # model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
     # model = model[0]
@@ -132,30 +176,19 @@ def main():
 
     # evaluation
     start = time.time()
-    val_acc, val_std = meta_test(model, meta_trainloader)
+    classifier_type = 'Proto'
+    val_acc, val_std = meta_test(model, meta_trainloader, classifier=classifier_type)
+    # val_acc, val_std = meta_test(model, meta_trainloader)
     val_time = time.time() - start
     print('val_acc: {:.4f}, val_std: {:.4f}, time: {:.1f}'.format(val_acc, val_std,
                                                                   val_time))
 
     start = time.time()
-    val_acc_feat, val_std_feat = meta_test(model, meta_testloader, use_logit=False)
-    val_time = time.time() - start
-    print('val_acc_feat: {:.4f}, val_std: {:.4f}, time: {:.1f}'.format(val_acc_feat,
-                                                                       val_std_feat,
-                                                                       val_time))
-
-    start = time.time()
-    test_acc, test_std = meta_test(model, meta_testloader)
+    test_acc, test_std = meta_test(model, meta_testloader, classifier=classifier_type)
+    # test_acc, test_std = meta_test(model, meta_testloader)
     test_time = time.time() - start
     print('test_acc: {:.4f}, test_std: {:.4f}, time: {:.1f}'.format(test_acc, test_std,
                                                                     test_time))
-
-    start = time.time()
-    test_acc_feat, test_std_feat = meta_test(model, meta_testloader, use_logit=False)
-    test_time = time.time() - start
-    print('test_acc_feat: {:.4f}, test_std: {:.4f}, time: {:.1f}'.format(test_acc_feat,
-                                                                         test_std_feat,
-                                                                         test_time))
 
 
 if __name__ == '__main__':
