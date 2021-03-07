@@ -2,7 +2,8 @@
 ### This repo includes the source code for the: "One Shot Speaker Identification: a Good Metric Is All You Need?" paper we wrote as part of the TAU Deep Learning 2021 course's final project.
 
 ## **Data**
-In order to train or test our model, please run the following:
+In order to train or test our model, you should get the LibrSpeech dataset first.
+In order to get the dataset, please run the following commands:
 ```bash script
 mkdir dataset
 cd dataset
